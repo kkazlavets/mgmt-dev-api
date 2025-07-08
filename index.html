@@ -7,6 +7,20 @@
     <link rel="icon" type="image/x-icon" href="commit_favicon.ico">
     <link rel="stylesheet" href="https://unpkg.com/@stoplight/elements/styles.min.css">
     <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            }
+
+            #root, .main-wrapper, .theme-doc-markdown, .sl-flex {
+            min-height: 100vh;
+            height: 100%;
+            }
+
+            .redoc-wrap, elements-api {
+            display: block;
+            height: 100vh;
+        }
         .theme-switch {
             position: fixed;
             top: 20px;
