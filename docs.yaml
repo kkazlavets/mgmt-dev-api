@@ -1,0 +1,2269 @@
+---
+swagger: "2.0"
+info:
+  version: "1.0"
+  title: "Comm-IT Management-tool API (dev)"
+  description: "API для управления AWS аккаунтами и их интеграции с различными сервисами"
+host: "aws-mgmt-dev.comm-it.com"
+schemes:
+- "https"
+tags:
+  - name: "Account Management"
+    description: "Операции по управлению AWS аккаунтами"
+  - name: "Status Management"
+    description: "Управление статусами аккаунтов"
+  - name: "Integrations"
+    description: "Интеграции с внешними сервисами (CloudHealth и др.)"
+  - name: "Customer Management"
+    description: "Управление клиентами и их настройками"
+  - name: "Permissions"
+    description: "Управление разрешениями и доступами"
+  - name: "Billing"
+    description: "Управление скидками и биллингом"
+  - name: "Documents"
+    description: "Работа с документами (счета, отчеты)"
+  - name: "Authentication"
+    description: "Аутентификация и авторизация"
+  - name: "Security"
+    description: "Управление безопасностью и чувствительными данными"
+  - name: "Task Management"
+    description: "Управление задачами и их событиями"
+paths:
+  /add-excluded-status:
+    post:
+      operationId: "/add-excluded-status"
+      tags:
+        - "Status Management"
+      description: |
+        Adds 'EXCLUDED' status to an AWS account in the management RDS database.  
+        If the account already has this status, it returns a conflict response.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Bearer token for Cognito authorization.
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - accountId
+            properties:
+              accountId:
+                type: string
+                description: AWS Account ID to mark as EXCLUDED.
+      responses:
+        "200":
+          description: Successful update
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "EXCLUDED status successfully added for account 123456789012"
+        "400":
+          description: Missing accountId in payload
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing accountId in event payload."
+        "404":
+          description: Account not found
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Account 123456789012 not found in Mgmt Tool."
+        "409":
+          description: Account already has EXCLUDED status
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Account 123456789012 already has EXCLUDED status"
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Database error: <details>"
+      security:
+        - CognitoAuth: []
+
+  /add-new-mpa:
+    post:
+      operationId: "/add-new-mpa"
+      tags:
+        - "Account Management"
+      description: |
+        Adds a new MPA (Management Payer Account) entry to the RDS.  
+        If the account already exists with the same `usedBy`, it returns a conflict.  
+        If `usedBy` is missing during update of an existing record, it returns a bad request.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Bearer token for Cognito authorization.
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - accountId
+            properties:
+              accountId:
+                type: string
+                description: The AWS Account ID of the MPA.
+              usedBy:
+                type: string
+                description: The customer alias associated with the account.
+      responses:
+        "200":
+          description: Account added or updated successfully
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Account 123456789012 successfully added."
+        "400":
+          description: Bad request, e.g., missing accountId or usedBy
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing accountId in event payload."
+        "404":
+          description: Account name could not be retrieved from AWS Organizations
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Error: Mgmt Tool doesn't have access to 123456789012"
+        "409":
+          description: Conflict – account already exists with the same usedBy
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Account 123456789012 already exists with `usedBy`: 98765."
+        "500":
+          description: Internal server error (e.g., database failure or AWS error)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to update RDS: <error details>"
+      security:
+        - CognitoAuth: []
+
+  /add-to-cloudhealth:
+    post:
+      operationId: "/add-to-cloudhealth"
+      tags:
+        - "Integrations"
+      description: |
+        Adds a new AWS account to CloudHealth by:
+        - Fetching the account name from AWS Organizations
+        - Looking up the associated Cost & Usage Report (CUR)
+        - Sending the registration request to the CloudHealth API
+  
+        If CUR report is not found, or permissions are missing — returns error.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Bearer token for Cognito authorization.
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - accountId
+            properties:
+              accountId:
+                type: string
+                description: AWS Account ID to onboard.
+              CURName:
+                type: string
+                description: (Optional) Name of the Cost & Usage Report to use. If not provided, the first available CUR will be selected.
+      responses:
+        "200":
+          description: Account successfully added to CloudHealth
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Successfully added account 123456789012."
+        "400":
+          description: Invalid request or error from CloudHealth API
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Error while adding account: {\"error\":\"Invalid CUR report name\"}"
+        "401":
+          description: Unauthorized – failed to assume role in account
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Error: Can't login to master account 123456789012"
+        "403":
+          description: Access denied while retrieving CUR report
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Access denied while retrieving CUR report."
+        "404":
+          description: CUR report not found
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "CUR report \"my-report\" not found."
+        "500":
+          description: Internal server error (e.g. failed to get account name)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to retrieve account name"
+      security:
+        - CognitoAuth: []
+
+  /create-ch-customers-tenant:
+    post:
+      operationId: "/create-ch-customers-tenant"
+      tags:
+        - "Customer Management"
+        - "Integrations"
+      description: |
+        Registers a new customer tenant in CloudHealth using provided company information,  
+        stores it in the RDS customer table, and generates the external ID for onboarding AWS accounts.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito token
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - customerAlias
+              - name
+              - address
+              - trial_expiration
+            properties:
+              customerAlias:
+                type: string
+                description: Unique alias of the customer
+                example: "otelier"
+              name:
+                type: string
+                description: Full customer name
+                example: "Otelier"
+              address:
+                type: object
+                required:
+                  - street1
+                  - city
+                  - state
+                  - zipcode
+                  - country
+                properties:
+                  street1:
+                    type: string
+                  street2:
+                    type: string
+                  city:
+                    type: string
+                  state:
+                    type: string
+                  zipcode:
+                    type: string
+                  country:
+                    type: string
+              trial_expiration:
+                type: string
+                format: date-time
+                example: "2025-03-10T22:00:00.000Z"
+      responses:
+        "200":
+          description: Tenant successfully created and stored in RDS
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Successfully added tenant to Cloud Health"
+        "404":
+          description: CloudHealth tenant creation failed
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Error while adding tenant to Cloud Health: <error>. CH onboarding canceled"
+        "500":
+          description: Unexpected server-side error (e.g. database failure)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to get current status from RDS: <error>"
+      security:
+        - CognitoAuth: []
+
+  /create-customer-proxy-account:
+    post:
+      operationId: "/create-customer-proxy-account"
+      tags:
+        - "Account Management"
+        - "Customer Management"
+      description: |
+        Provisions a proxy account for the customer using AWS Service Catalog,  
+        and updates customer metadata in RDS. If the account already exists, it updates the customer record.  
+        Uses granular access logic to determine if provisioning is needed.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito JWT
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - customerName
+              - customerAlias
+              - customerKey
+            properties:
+              customerName:
+                type: string
+                example: "Otelier"
+                description: Full name of the customer
+              customerAlias:
+                type: string
+                example: "otelier"
+                description: Lowercase alias for customer (used for email and proxy ID)
+              customerKey:
+                type: string
+                example: "12345"
+                description: Internal customer key (used to fetch/update customer record)
+      responses:
+        "200":
+          description: Account provisioned or updated successfully
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                description: Lambda request ID for tracking
+              message:
+                type: string
+                example: "Proxy account already exists, account ID: 123456789012"
+        "400":
+          description: Invalid input or bad customerAlias format
+          schema:
+            type: object
+            properties:
+              error_message:
+                type: string
+                example: "Invalid customerAlias"
+              message:
+                type: string
+        "500":
+          description: Internal error while provisioning or accessing customer data
+          schema:
+            type: object
+            properties:
+              error_message:
+                type: string
+                example: "Failed to create Proxy Account. Customer Alias is empty."
+              message:
+                type: string
+      security:
+        - CognitoAuth: []
+
+  /create-customer:
+    post:
+      operationId: "/create-customer"
+      tags:
+        - "Permissions"
+        - "Account Management"
+      description: |
+        Creates a new customer entry or updates an existing one in the database.  
+        If applicable, provisions a proxy AWS account and triggers SSM automation for granular access.  
+        Also validates input, avoids duplication, and handles account assignment logic via S3.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito token
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - customerName
+              - customerAlias
+              - isCloudHealthCreationEnabled
+              - isReselling
+            properties:
+              customerName:
+                type: string
+                example: "Otelier"
+                description: Full name of the customer
+              customerAlias:
+                type: string
+                example: "otelier"
+                description: Lowercase customer alias (ID)
+              customerKey:
+                type: string
+                example: "12345"
+                description: "Optional: internal customer key for updates"
+              isCloudHealthCreationEnabled:
+                type: boolean
+                example: true
+                description: Whether CloudHealth tenant creation is enabled
+              isReselling:
+                type: boolean
+                example: false
+                description: Whether this is a reseller customer
+      responses:
+        "200":
+          description: Customer created/updated successfully, with optional provisioning triggered
+          schema:
+            type: object
+            properties:
+              logs:
+                type: array
+                items:
+                  type: string
+                example: ["Info: Granular Access automation started."]
+              customer:
+                type: object
+                properties:
+                  record_id:
+                    type: integer
+                    example: 123
+                  customer_key:
+                    type: integer
+                    example: 456
+                  proxy_account_id:
+                    type: string
+                    example: "IN_PROGRESS"
+        "400":
+          description: Bad request – invalid alias, duplicate customer, or missing data
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Error: otelier! is invalid value. Please, input valid Customer ID"
+              error:
+                type: string
+                example: "ValidationError: ..."
+        "404":
+          description: Customer not found by provided key
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Error: Customer with key 12345 not found in the database"
+              error:
+                type: string
+                example: "NotFoundError"
+        "500":
+          description: Internal error – DB, AWS or unexpected error
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "An unexpected error occurred."
+              error:
+                type: string
+                example: "Traceback or exception message"
+      security:
+        - CognitoAuth: []
+
+  /customers:
+    get:
+      operationId: "/customers"
+      tags:
+        - "Customer Management"
+      description: |
+        Retrieves a list of all customers from the database, including their IDs, names, keys, access method, and legacy PS status.  
+        Returns an array of objects formatted for use in dropdowns or selection UIs.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito token
+      responses:
+        "200":
+          description: Successfully retrieved customer list
+          schema:
+            type: array
+            items:
+              type: object
+              properties:
+                value:
+                  type: string
+                  example: "customer-001"
+                label:
+                  type: string
+                  example: "customer-001 | Otelier"
+                properties:
+                  type: object
+                  properties:
+                    customerKey:
+                      type: integer
+                      example: 123
+                    accessMethod:
+                      type: integer
+                      example: 2
+                    legacyPSExistance:
+                      type: boolean
+                      example: true
+        "500":
+          description: Internal server error while querying database
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Something went wrong: <error message>"
+      security:
+        - CognitoAuth: []
+
+  /customer-discounts:
+    post:
+      operationId: "/customer-discounts"
+      tags:
+        - "Customer Management"
+        - "Billing"
+      description: |
+        Creates or updates discount data for a specific customer.  
+        Discount values include spend-based, support, and saving plan values, as well as credit configurations.  
+        Internally calls the `UpsertCustomerDiscounts` stored procedure.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: header
+          name: Authorization
+          type: string
+          required: false
+          description: Optional Cognito token
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - customer
+            properties:
+              customer:
+                type: object
+                required:
+                  - record_id
+                properties:
+                  record_id:
+                    type: integer
+                    example: 123
+                    description: Internal record ID of the customer
+                  discounts:
+                    type: object
+                    properties:
+                      timestamp:
+                        type: string
+                        format: date-time
+                        example: "2024-07-01T00:00:00Z"
+                      spend_amount:
+                        type: number
+                        format: float
+                        example: 10000
+                      spend_unit:
+                        type: integer
+                        example: 1
+                      spend_effective_date:
+                        type: string
+                        format: date
+                        example: "2024-07-01"
+                      spend_apply_order:
+                        type: integer
+                        example: 1
+                      spend_application_target_ids:
+                        type: string
+                        example: "1,2,3"
+                      saving_plan_amount:
+                        type: number
+                        example: 5000
+                      saving_plan_unit:
+                        type: integer
+                        example: 2
+                      saving_plan_effective_date:
+                        type: string
+                        format: date
+                        example: "2024-07-01"
+                      saving_plan_apply_order:
+                        type: integer
+                        example: 2
+                      saving_plan_application_target_ids:
+                        type: string
+                        example: "4,5"
+                      support_amount:
+                        type: number
+                        example: 2000
+                      support_unit:
+                        type: integer
+                        example: 1
+                      support_effective_date:
+                        type: string
+                        format: date
+                        example: "2024-07-01"
+                      support_apply_order:
+                        type: integer
+                        example: 3
+                      support_application_target_ids:
+                        type: string
+                        example: "6"
+                      credits_apply_mode:
+                        type: integer
+                        example: 1
+                      credits_apply_order:
+                        type: integer
+                        example: 4
+                      credits_application_target_ids:
+                        type: string
+                        example: "7,8"
+      responses:
+        "200":
+          description: Discount successfully upserted
+          schema:
+            type: object
+            properties:
+              discounts_record_id:
+                type: integer
+                example: 789
+                description: Newly created or updated discount record ID
+        "400":
+          description: Invalid request (missing body or required fields)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Bad Request"
+              message:
+                type: string
+                example: "Missing event body"
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal Server Error"
+              message:
+                type: string
+                example: "Something went wrong: <details>"
+      security:
+        - CognitoAuth: []
+
+  /discount-dictionaries:
+    get:
+      operationId: "/discount-dictionaries"
+      tags:
+        - "Billing"
+      description: |
+        Returns lookup data (reference tables) for configuring customer discounts.
+        This includes discount types, unit types, target types, and apply modes.
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: "Returns discount reference data"
+          schema:
+            type: object
+            properties:
+              discount_apply_mode_types:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      example: 1
+                    name:
+                      type: string
+                      example: "Apply All"
+              discount_target_types:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      example: 2
+                    name:
+                      type: string
+                      example: "Customer Group"
+              discount_types:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      example: 3
+                    name:
+                      type: string
+                      example: "Support"
+              discount_unit_types:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      example: 4
+                    name:
+                      type: string
+                      example: "USD"
+        "500":
+          description: "Internal server error"
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal Server Error"
+              message:
+                type: string
+                example: "Something went wrong while fetching reference tables"
+      security:
+        - CognitoAuth: []
+
+  /discount/{customer_key}:
+    get:
+      operationId: "/discount/{customer_key}"
+      tags:
+        - "Customer Management"
+        - "Billing"
+      description: |
+        Returns detailed discount configuration for a specific customer by `customer_key`.
+        Includes customer info and structured discount data (spend, support, saving_plan, credits).
+      produces:
+        - application/json
+      parameters:
+        - name: customer_key
+          in: path
+          required: true
+          type: string
+          description: Unique key identifying the customer
+      responses:
+        "200":
+          description: Successful response with customer discount data
+          schema:
+            type: object
+            properties:
+              record_id:
+                type: integer
+                example: 123
+              timestamp:
+                type: string
+                format: date-time
+                example: "2025-07-08T12:00:00Z"
+              customer_key:
+                type: string
+                example: "acme"
+              customer_alias:
+                type: string
+                example: "acme-alias"
+              customer_name:
+                type: string
+                example: "Acme Corporation"
+              discounts:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+                  spend:
+                    type: object
+                    properties:
+                      amount:
+                        type: number
+                      unit:
+                        type: string
+                      effective_date:
+                        type: string
+                        format: date
+                      apply_order:
+                        type: integer
+                      application_target_ids:
+                        type: array
+                        items:
+                          type: integer
+                  saving_plan:
+                    type: object
+                    properties:
+                      amount:
+                        type: number
+                      unit:
+                        type: string
+                      effective_date:
+                        type: string
+                        format: date
+                      apply_order:
+                        type: integer
+                      application_target_ids:
+                        type: array
+                        items:
+                          type: integer
+                  support:
+                    type: object
+                    properties:
+                      amount:
+                        type: number
+                      unit:
+                        type: string
+                      effective_date:
+                        type: string
+                        format: date
+                      apply_order:
+                        type: integer
+                      application_target_ids:
+                        type: array
+                        items:
+                          type: integer
+                  credits:
+                    type: object
+                    properties:
+                      apply_mode:
+                        type: integer
+                      apply_order:
+                        type: integer
+                      application_target_ids:
+                        type: array
+                        items:
+                          type: integer
+        "400":
+          description: Bad Request - customer_key not provided
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Bad Request"
+              message:
+                type: string
+                example: "Missing customer_id parameter"
+        "404":
+          description: Customer not found
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Not Found"
+              message:
+                type: string
+                example: "Customer 'xyz' not found"
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal Server Error"
+              message:
+                type: string
+                example: "Database connection failed"
+      security:
+        - CognitoAuth: []
+
+  /excluded-status:
+    delete:
+      operationId: "/excluded-status"
+      tags:
+        - "Status Management"
+      description: |
+        Removes the "EXCLUDED" status for a given account if applicable.
+        Accepts `accountId` and `accountName` as query parameters.
+      produces:
+        - application/json
+      parameters:
+        - name: accountId
+          in: query
+          required: true
+          type: string
+          description: AWS account ID of the master account
+        - name: accountName
+          in: query
+          required: true
+          type: string
+          description: AWS account name or organization name of the master account
+      responses:
+        "200":
+          description: Success or status message
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "EXCLUDED status successfully deleted from account id: 123456789012 name: AcmeOrg"
+        "400":
+          description: Invalid or missing parameters
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing accountId or accountName"
+        "500":
+          description: Internal server error (e.g. database failure, SSM error, etc.)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal Server Error"
+              message:
+                type: string
+                example: "Main Error : An error occurred (AccessDeniedException)..."
+      security:
+        - CognitoAuth: []
+
+  /delete-permission-sets/{customer_alias}:
+    delete:
+      operationId: "/delete-permission-sets/{customer_alias}"
+      tags:
+        - "Permissions"
+      description: |
+        Deletes predefined permission sets (ps-dba, ps-devops, ps-developers, ps-secops) for the given customer alias across accounts.
+        Also updates customer data in RDS and logs the task to DynamoDB/SNS.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - customerAlias
+            properties:
+              customerAlias:
+                type: string
+                description: Unique customer alias (lowercase, alphanumeric with dashes)
+                example: my-customer-123
+      responses:
+        "200":
+          description: Successfully deleted permission sets
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                description: AWS request ID of the Lambda invocation
+              message:
+                type: string
+                description: Combined log of all delete operations
+        "400":
+          description: Invalid input
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+              error_message:
+                type: string
+              message:
+                type: string
+                example: Failed to delete PS. my@customer is invalid value. Please, input valid Customer Alias
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+              error_message:
+                type: string
+              message:
+                type: string
+                example: Failed to delete PS. Customer Alias is empty. Please, input valid Customer Alias
+      security:
+        - CognitoAuth: []
+
+  /download-invoices/{year}/{month}:
+    get:
+      operationId: "/download-invoices/{year}/{month}"
+      tags:
+        - "Documents"
+        - "Billing"
+      description: |
+        Collects all invoice PDF files for the specified billing month and year from S3,
+        archives them into a ZIP file, uploads to a temporary S3 path, and returns a presigned URL to download the archive.
+      produces:
+        - application/json
+      parameters:
+        - name: billingYear
+          in: query
+          required: true
+          type: string
+          description: Year of the billing period (e.g., "2025")
+        - name: billingMonth
+          in: query
+          required: true
+          type: string
+          description: Month of the billing period (e.g., "07")
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+      responses:
+        "200":
+          description: Presigned URL generated successfully
+          schema:
+            type: object
+            properties:
+              presignedUrl:
+                type: string
+                example: "https://bucket.s3.amazonaws.com/temp/Invoices-2025-07.zip?X-Amz-Expires=3600&..."
+              fileName:
+                type: string
+                example: "Invoices-2025-07.zip"
+              expirationDate:
+                type: string
+                format: date-time
+                example: "2025-07-08T14:23:00Z"
+        "400":
+          description: Missing required billing parameters
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing required fields"
+              message:
+                type: string
+                example: "billingYear and billingMonth are required"
+        "404":
+          description: No invoices found or bucket doesn't exist
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "No PDF invoices found"
+              message:
+                type: string
+                example: "No PDF invoices found for 07/2025"
+        "500":
+          description: Internal server error (ZIP/S3 failure)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal server error"
+              message:
+                type: string
+                example: "Failed to archive or upload invoices"
+      security:
+        - CognitoAuth: []
+
+  /download-invoice:
+    get:
+      operationId: "/download-invoice"
+      tags:
+        - "Documents"
+        - "Billing"
+      description: |
+        Returns a presigned S3 URL to download a specific invoice file by its full path (`source_file_name`).
+      produces:
+        - application/json
+      parameters:
+        - name: source_file_name
+          in: query
+          required: true
+          type: string
+          description: Full S3 key path to the invoice file (e.g., "invoices/2025/07/invoice-123.pdf")
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+      responses:
+        "200":
+          description: Presigned URL for the specified invoice file
+          schema:
+            type: object
+            properties:
+              presignedUrl:
+                type: string
+                example: "https://s3.amazonaws.com/bucket/invoices/2025/07/invoice-123.pdf?X-Amz-Security-Token=..."
+              fileName:
+                type: string
+                example: "invoice-123.pdf"
+        "400":
+          description: Missing required query parameter
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing required parameters"
+              message:
+                type: string
+                example: "source_file_name is required"
+        "404":
+          description: Bucket not found
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Bucket not found"
+              message:
+                type: string
+                example: "The specified bucket does not exist"
+        "500":
+          description: Internal server error (e.g., S3 failure or unknown exception)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal server error"
+              message:
+                type: string
+                example: "Error retrieving file from S3"
+      security:
+        - CognitoAuth: []
+
+  /get-account-data/{account_id}:
+    get:
+      operationId: "/get-account-data/{account_id}"
+      tags:
+        - "Account Management"
+      description: |
+        Fetches account metadata (name, customer, support level, MPA ID) from the RDS `management` table  
+        using the provided AWS `accountId`. Also enriches with MPA account metadata if applicable.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - accountId
+            properties:
+              accountId:
+                type: string
+                example: "123456789012"
+                description: AWS Account ID to query
+      responses:
+        "200":
+          description: Successfully retrieved account metadata
+          schema:
+            type: object
+            properties:
+              account_id:
+                type: string
+                example: "123456789012"
+              account_name:
+                type: string
+                example: "DevOps Account"
+              customer_name:
+                type: string
+                example: "Acme Corp"
+              support_plan:
+                type: string
+                example: "Enterprise"
+              mpa_id:
+                type: string
+                example: "987654321098"
+              mpa_name:
+                type: string
+                example: "Acme Master Payer"
+              mpa_support_plan:
+                type: string
+                example: "Enterprise"
+        "400":
+          description: Bad request or missing input
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing accountId in request body"
+        "404":
+          description: No matching account data found
+          schema:
+            type: string
+            example: "ERROR|123456789012|No data found."
+        "500":
+          description: Internal server error (e.g., DB connection, parameter store)
+          schema:
+            type: string
+            example: "ERROR|123456789012|Failed to fetch data from database: [error details]"
+      security:
+        - api_key: []
+
+  /get-accounts-by-customer-key/{customer_key}:
+    get:
+      operationId: "/get-accounts-by-customer-key/{customer_key}"
+      tags:
+        - "Account Management"
+        - "Customer Management"
+      description: |
+        Returns a list of AWS accounts associated with a given customer.  
+        Each account entry includes account ID, name, MPA ID, and MPA name, formatted for dropdown selection UIs.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - customerKey
+            properties:
+              customerKey:
+                type: string
+                example: "123"
+                description: Internal customer identifier used to query account mappings
+      responses:
+        "200":
+          description: List of AWS accounts for the customer
+          schema:
+            type: array
+            items:
+              type: object
+              properties:
+                value:
+                  type: string
+                  example: "123456789012"
+                  description: The AWS account ID
+                label:
+                  type: string
+                  example: "123456789012 | DevOps Account"
+                  description: A combined string used in UIs
+                mpaId:
+                  type: string
+                  example: "987654321098"
+                  description: ID of the Management Payer Account (MPA)
+                mpaName:
+                  type: string
+                  example: "Acme Master Account"
+                  description: Name of the MPA account
+        "500":
+          description: Internal server error (e.g., DB connection failure)
+          schema:
+            type: string
+            example: "Something went wrong: <error message>"
+      security:
+        - CognitoAuth: []
+
+  /get-customer-info/{customer_alias}:
+    get:
+      operationId: "/get-customer-info/{customer_alias}"
+      tags:
+        - "Customer Management"
+      description: |
+        Fetches customer details from the `view_customers_current_info` view in the database  
+        using the provided customer alias (`customerAlias`).
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - customerAlias
+            properties:
+              customerAlias:
+                type: string
+                example: "otelier"
+                description: Unique customer alias (used as customerId in DB view)
+      responses:
+        "200":
+          description: Successfully retrieved customer data
+          schema:
+            type: array
+            items:
+              type: object
+              description: Customer record from `view_customers_current_info`
+              additionalProperties: true
+        "400":
+          description: Missing or invalid input
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing required field: customerAlias"
+        "500":
+          description: Internal server error (e.g. DB, credentials)
+          schema:
+            type: string
+            example: "Something went wrong: <details>"
+      security:
+        - CognitoAuth: []
+
+  /offboard-account:
+    post:
+      operationId: "/offboard-account"
+      tags:
+        - "Account Management"
+        - "Status Management"
+      description: |
+        Sets the status of a given AWS account (or all linked accounts if it's an MPA) to `OFFBOARDED`  
+        in the RDS `management` table. Ensures idempotency by skipping accounts already marked as offboarded.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - accountId
+            properties:
+              accountId:
+                type: string
+                example: "123456789012"
+                description: AWS account ID to offboard
+      responses:
+        "200":
+          description: OFFBOARDED status added or already present
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "OFFBOARDED status successfully added for account 123456789012"
+        "400":
+          description: Missing accountId in request
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing accountId in event payload."
+        "404":
+          description: Account not found in database
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Account 123456789012 not found in Mgmt Tool."
+        "409":
+          description: Account already has OFFBOARDED status
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Account 123456789012 already has OFFBOARDED status"
+        "500":
+          description: Internal server error (DB or AWS)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Database error: <details> or AWS error: <details>"
+      security:
+        - CognitoAuth: []
+
+  /ps-list:
+    post:
+      operationId: "getPermissionSetsList"
+      tags:
+        - "Customer Management"
+        - "Permissions"
+      description: |
+        Returns a list of unique `customerId` values from the `db_customersId` table  
+        used for permission set (PS) assignment and management logic.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+      responses:
+        "200":
+          description: List of unique customer aliases (IDs)
+          schema:
+            type: array
+            items:
+              type: string
+            example:
+              - otelier
+              - acme
+              - beta-client
+        "500":
+          description: Internal server error (e.g., DB or SSM failure)
+          schema:
+            type: string
+            example: "Something went wrong: Unable to connect to DB"
+      security:
+        - CognitoAuth: []
+
+  /quicksight-login:
+    get:
+      operationId: "/quicksight-login"
+      tags:
+        - "Authentication"
+      description: |
+        Initiates the OAuth2 login flow by encrypting the original request and redirecting the user to the Cognito login page.  
+        After successful login, the user is redirected to `/quicksight/token` with the encrypted state and auth code.
+      produces:
+        - application/json
+      parameters:
+        - name: action_path
+          in: query
+          required: true
+          type: string
+          description: Path the user will be redirected to after QuickSight login completes
+      responses:
+        "302":
+          description: Redirect to Cognito login URL
+          headers:
+            Location:
+              type: string
+              description: Cognito login redirect URL
+            Cache-Control:
+              type: string
+              description: Cache control header
+        "400":
+          description: Missing or invalid `action_path` parameter
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "action_path is required"
+        "500":
+          description: Internal server error (e.g., config or encryption failure)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+      security: []  # Public endpoint, no auth required
+
+  /quicksight-oauth2:
+    get:
+      operationId: "/quicksight-oauth2"
+      tags:
+        - "Authentication"
+      description: |
+        Handles the OAuth2 callback from Cognito after user login.  
+        Exchanges the `code` for access/ID tokens and dynamically renders HTML that:
+        - either downloads a file (if action is `download/...`)
+        - or renders a form (via JS template) for uploading/scheduling to QuickSight
+      produces:
+        - text/html
+      parameters:
+        - name: code
+          in: query
+          required: true
+          type: string
+          description: Authorization code returned by Cognito after login
+        - name: state
+          in: query
+          required: true
+          type: string
+          description: Encrypted original query parameters (e.g., action path)
+      responses:
+        "200":
+          description: HTML content rendered for download or upload interaction
+          schema:
+            type: string
+            example: "<!DOCTYPE html>..."
+        "400":
+          description: Missing required query parameters
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+          examples:
+            missingCode:
+              error: "code is required"
+            missingState:
+              error: "state is required"
+        "500":
+          description: Internal error (OAuth2 token exchange or rendering)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+      security: []  # Public endpoint, no auth required (it's part of the login flow)
+
+  /set-sensitive-account-status:
+    post:
+      operationId: "/set-sensitive-account-status"
+      tags:
+        - "Security"
+        - "Status Management"
+      description: |
+        Updates the `sensitiveAccountStatus` field to `1` for all accounts in the `management` table  
+        that belong to the specified `organizationName`. Returns the updated list of accounts.
+      produces:
+        - application/json
+      parameters:
+        - name: organizationName
+          in: query
+          required: true
+          type: string
+          description: Name of the organization whose accounts should be marked as sensitive
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+      responses:
+        "200":
+          description: Successfully updated account records
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Successfully added sensitive status to accounts in organization AcmeOrg!"
+        "400":
+          description: Missing or invalid `organizationName`
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing required query parameter: organizationName"
+        "500":
+          description: Internal server error (DB or AWS failure)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Main Error : An error occurred (AccessDeniedException)..."
+      security:
+        - CognitoAuth: []
+
+  /suspend-mpa:
+    post:
+      operationId: "/suspend-mpa"
+      tags:
+        - "Account Management"
+        - "Status Management"
+      description: |
+        Updates the account status to `SUSPENDED` in the RDS `management` table for a given AWS MPA account ID.  
+        If the account is already suspended, no duplicate entry is created.  
+        The updated state is logged to S3 for traceability.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          type: string
+          description: Optional Cognito Bearer token
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - accountId
+            properties:
+              accountId:
+                type: string
+                example: "123456789012"
+                description: AWS account ID (MPA) to suspend
+      responses:
+        "200":
+          description: Account suspended successfully or already suspended
+          schema:
+            type: string
+            example: "SUSPENDED status successfully added to account id: 123456789012 name: Acme-MPA"
+        "404":
+          description: Account not found in RDS
+          schema:
+            type: string
+            example: "Error: Account 123456789012 doesn't found in Mgmt Tool. Please, check Account ID"
+        "500":
+          description: Internal server error (e.g. SSM, DB, AWS SDK)
+          schema:
+            type: string
+            example: "Error: Something went wrong with account 123456789012"
+      security:
+        - CognitoAuth: []
+
+    get:
+      operationId: "/suspend-mpa-legacy"
+      tags:
+        - "Account Management"
+        - "Status Management"
+      description: |
+        This method is likely a legacy or testing endpoint.  
+        Prefer using `POST` for suspending MPA accounts with payload body.
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: Legacy/test suspend endpoint (limited or placeholder use)
+          schema:
+            type: object
+      security:
+        - CognitoAuth: []
+
+  /task/{taskId}:
+    get:
+      operationId: "/task/{taskId}"
+      tags:
+        - "Task Management"
+      description: |
+        Retrieves information about a specific task by its ID.
+      produces:
+        - application/json
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          type: string
+          description: The ID of the task to retrieve.
+      responses:
+        "200":
+          description: Task information retrieved successfully.
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                example: "task-123"
+              status:
+                type: string
+                example: "IN_PROGRESS"
+              createdAt:
+                type: string
+                format: date-time
+                example: "2025-07-08T10:00:00Z"
+              updatedAt:
+                type: string
+                format: date-time
+                example: "2025-07-08T10:00:00Z"
+              taskType:
+                type: string
+                example: "document_upload"
+              taskData:
+                type: object
+                example:
+                  s3Key: "uploads/user123/report.csv"
+                  fileType: "invoice"
+                  originalFileName: "report.csv"
+              queueName:
+                type: string
+                example: "my-sqs-queue-invoice"
+        "400":
+          description: Invalid taskId provided.
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Invalid taskId"
+        "404":
+          description: Task not found.
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Task not found"
+        "500":
+          description: Internal server error.
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to retrieve task information"
+      security:
+        - CognitoAuth: []
+
+  /task-events:
+    get:
+      operationId: "/task-events"
+      tags:
+        - "Task Management"
+      description: |
+        Returns all events for the specified task.  
+        Requires a `taskId` query parameter.  
+        If the task is not found, a `404` is returned.
+      produces:
+        - application/json
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          type: string
+          description: Task identifier for which to fetch all events
+      responses:
+        "200":
+          description: Task events retrieved successfully
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                example: "task-123"
+              events:
+                type: array
+                items:
+                  type: object
+        "400":
+          description: Missing required query parameter
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing required parameter: taskId"
+        "404":
+          description: No events found for task
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+              events:
+                type: array
+                items:
+                  type: object
+                example: []
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to retrieve task events"
+      security:
+        - CognitoAuth: []
+              
+  /task-events/{taskId}:
+    get:
+      operationId: "/task-events/{taskId}"
+      tags:
+        - "Task Management"
+      description: |
+        Retrieves all logged events for a given task by its `taskId`.  
+        If no events are found, a `404` is returned.  
+        If `taskId` is not provided, a `400` is returned.
+      produces:
+        - application/json
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          type: string
+          description: Task identifier
+      responses:
+        "200":
+          description: List of task events
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                example: "task-abc123"
+              events:
+                type: array
+                items:
+                  type: object
+        "400":
+          description: Missing `taskId` parameter
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing required parameter: taskId"
+        "404":
+          description: No events found for this task
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+              events:
+                type: array
+                items:
+                  type: object
+                example: []
+        "500":
+          description: Internal error fetching events
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to retrieve task events"
+      security:
+        - CognitoAuth: []
+
+  /task-events/{taskId}/last:
+    get:
+      operationId: "/task-events/{taskId}/last"
+      tags:
+        - "Task Management"
+      description: |
+        Returns the most recent event for the given `taskId`.  
+        If the task is not found, responds with a 404.  
+        If `taskId` is missing, responds with 400.
+      produces:
+        - application/json
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          type: string
+          description: Task identifier (UUID or ID string)
+      responses:
+        "200":
+          description: Last task event returned successfully
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                example: "task-12345"
+              event:
+                type: object
+                example:
+                  status: "SUCCESS"
+                  timestamp: "2025-07-08T12:34:56Z"
+        "400":
+          description: Missing required query parameter `taskId`
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing required parameter: taskId"
+        "404":
+          description: No last event found for the task
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+              event:
+                type: object
+                example: {}
+        "500":
+          description: Internal error fetching the event
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to retrieve task events"
+      security:
+        - CognitoAuth: []
+
+  /task-status/{taskId}:
+    get:
+      operationId: "/task-status/{taskId}"
+      tags:
+        - "Task Management"
+      description: |
+        Retrieves the current status of a specific task by its ID.
+      produces:
+        - application/json
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          type: string
+          description: The ID of the task to retrieve status for.
+      responses:
+        "200":
+          description: Task status retrieved successfully.
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                example: "task-123"
+              status:
+                type: string
+                example: "COMPLETED"
+              updatedAt:
+                type: string
+                format: date-time
+                example: "2025-07-08T14:15:22Z"
+        "400":
+          description: Invalid taskId provided.
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Invalid taskId"
+        "404":
+          description: Task not found.
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Task not found"
+        "500":
+          description: Internal server error.
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to retrieve task status"
+      security:
+        - CognitoAuth: []
+
+  /task-status/{taskId}/last:
+    get:
+      operationId: "/task-status/{taskId}/last"
+      tags:
+        - "Task Management"
+      description: |
+        Returns the most recent status event for the provided task ID.
+        Use `taskId` as a query parameter.
+      produces:
+        - application/json
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          type: string
+          description: Task identifier (UUID or string)
+      responses:
+        "200":
+          description: Last status event for the task
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                example: "task-456"
+              event:
+                type: object
+                example:
+                  status: "COMPLETED"
+                  timestamp: "2025-07-08T14:15:22Z"
+        "400":
+          description: Missing taskId parameter
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Missing required parameter: taskId"
+        "404":
+          description: Task not found or no event available
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+              event:
+                type: object
+                example: {}
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Failed to retrieve task events"
+      security:
+        - CognitoAuth: []
+
+  /upload-document:
+    post:
+      operationId: "/upload-document"
+      tags:
+        - "Documents"
+        - "Task Management"
+      description: |
+        Accepts an S3 key and document metadata, and schedules it for processing via SQS.
+        Supported file types: invoice, paymentsDue, unappliedFunds, transactions, discounts, invoices-summary.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - s3Key
+              - fileType
+            properties:
+              s3Key:
+                type: string
+                example: uploads/user123/report.csv
+              fileType:
+                type: string
+                enum: [invoice, paymentsDue, unappliedFunds, transactions, discounts, invoices-summary]
+                example: invoice
+              originalFileName:
+                type: string
+                example: report.csv
+      responses:
+        "200":
+          description: Document scheduled successfully
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+                example: "d5a45b98-1c2f-4ab3-a3e2-78c6a0d2e9b1"
+              message:
+                type: string
+                example: Scheduled document for processing.
+              queueName:
+                type: string
+                example: my-sqs-queue-invoice
+        "400":
+          description: Missing required fields
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Missing required fields: s3Key and fileType are required"
+        "500":
+          description: Failed to schedule document
+          schema:
+            type: object
+            properties:
+              taskId:
+                type: string
+              s3Key:
+                type: string
+              fileType:
+                type: string
+              originalFileName:
+                type: string
+              message:
+                type: string
+                example: Failed to schedule document for processing.
+              error:
+                type: string
+                example: Internal server error details
+      security:
+        - CognitoAuth: []
+
+  /upload-url:
+    post:
+      operationId: "/upload-url"
+      tags:
+        - "Documents"
+        - "Integrations"
+      description: |
+        Generates a presigned S3 URL for uploading a single document (invoice, summary, etc.).
+        The fileType is required and must be one of the predefined options.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - fileType
+            properties:
+              fileType:
+                type: string
+                enum: [discounts, invoices-summary, invoice, paymentsDue, unappliedFunds, transactions]
+                example: invoice
+      responses:
+        "200":
+          description: Presigned URL generated successfully
+          schema:
+            type: object
+            properties:
+              s3PresignedUrl:
+                type: string
+                example: https://s3.amazonaws.com/my-bucket/invoices/raw/invoice_20240708124500.pdf?...
+              s3Key:
+                type: string
+                example: invoices/raw/invoice_20240708124500.pdf
+        "400":
+          description: Invalid or missing fileType
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: fileType is required
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+      security:
+        - CognitoAuth: []
+
+securityDefinitions:
+  CognitoAuth:
+    type: "apiKey"
+    name: "Authorization"
+    in: "header"
+    x-amazon-apigateway-authtype: "cognito_user_pools"
+  api_key:
+    type: "apiKey"
+    name: "x-api-key"
+    in: "header"
+x-amazon-apigateway-policy:
+  Version: "2012-10-17"
+  Statement:
+  - Effect: "Allow"
+    Principal: "*"
+    Action: "execute-api:Invoke"

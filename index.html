@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html data-theme="light">
+<head>
+    <title>API Gateway Developer Management Tool - Documentation</title>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/x-icon" href="commit_favicon.ico">
+    <link rel="stylesheet" href="https://unpkg.com/@stoplight/elements/styles.min.css">
+    <style>
+        .theme-switch {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: sans-serif;
+            transition: all 0.3s ease;
+        }
+        
+        html[data-theme="dark"] .theme-switch {
+            background: #2d3748;
+            border-color: #4a5568;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+<button class="theme-switch" onclick="toggleTheme()">🌓 Toggle Theme</button>
+
+<elements-api
+    apiDescriptionUrl="docs.yaml"
+    router="hash"
+    layout="sidebar"
+/>
+
+<script src="https://unpkg.com/@stoplight/elements/web-components.min.js"></script>
+<script>
+    function toggleTheme() {
+        const html = document.documentElement;
+        const currentTheme = html.getAttribute('data-theme');
+        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+        html.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+    }
+
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+</script>
+
+<script>
+    const observer = new MutationObserver(() => {
+    document.querySelectorAll('a[href]').forEach((link) => {
+        const href = link.getAttribute('href');
+        if (
+        href &&
+        href.startsWith('https://stoplight.io/?utm_source=elements') &&
+        href.includes('utm_campaign=powered_by')
+        ) {
+        console.log('Удалён баннер Stoplight:', href);
+        link.remove();
+        observer.disconnect();
+        }
+    });
+    });
+
+    observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    });
+</script>
+
+</body>
+</html> 
