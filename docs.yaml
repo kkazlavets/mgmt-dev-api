@@ -4,7 +4,7 @@ info:
   version: "1.0"
   title: "Comm-IT Management-tool API (dev)"
   description: "API для управления AWS аккаунтами и их интеграции с различными сервисами"
-host: "aws-mgmt-dev.comm-it.com"
+host: "test.comm-it.com"
 schemes:
 - "https"
 tags:
